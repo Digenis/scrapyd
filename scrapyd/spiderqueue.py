@@ -1,3 +1,6 @@
+import json
+import sqlite3
+
 from zope.interface import implementer
 
 from scrapyd.interfaces import ISpiderQueue
@@ -8,25 +11,65 @@ from scrapyd.sqlite import JsonSqlitePriorityQueue
 class SqliteSpiderQueue(object):
 
     def __init__(self, database=None, table='spider_queue'):
-        self.q = JsonSqlitePriorityQueue(database, table)
+        self.database = database or ':memory:'
+        self.table = table
+        # about check_same_thread: http://twistedmatrix.com/trac/ticket/4040
+        self.conn = sqlite3.connect(self.database, check_same_thread=False)
+        q = "create table if not exists %s (id integer primary key, " \
+            "priority real key, message blob)" % table
+        self.conn.execute(q)
+
+    def encode(self, obj):
+        return sqlite3.Binary(json.dumps(obj).encode('ascii'))
+
+    def decode(self, text):
+        return json.loads(bytes(text).decode('ascii'))
 
     def add(self, name, **spider_args):
-        d = spider_args.copy()
-        d['name'] = name
-        priority = float(d.pop('priority', 0))
-        self.q.put(d, priority)
+        message = spider_args.copy()
+        message['name'] = name
+        priority = float(spider_args.pop('priority', 0))
+        q = "insert into %s (priority, message) values (?,?)" % self.table
+        self.conn.execute(q, (priority, self.encode(message)))
+        self.conn.commit()
 
     def pop(self):
-        return self.q.pop()
+        q = "select id, message from %s order by priority desc limit 1" \
+            % self.table
+        idmsg = self.conn.execute(q).fetchone()
+        if idmsg is None:
+            return
+        id, msg = idmsg
+        q = "delete from %s where id=?" % self.table
+        c = self.conn.execute(q, (id,))
+        if not c.rowcount: # record vanished, so let's try again
+            self.conn.rollback()
+            return self.pop()
+        self.conn.commit()
+        return self.decode(msg)
 
     def count(self):
-        return len(self.q)
+        q = "select count(*) from %s" % self.table
+        return self.conn.execute(q).fetchone()[0]
 
     def list(self):
-        return [x[0] for x in self.q]
+        q = "select message from %s order by priority desc" % self.table
+        return [self.decode(m) for m, in self.conn.execute(q)]
 
     def remove(self, func):
-        return self.q.remove(func)
+        q = "select id, message from %s" % self.table
+        n = 0
+        for id, msg in self.conn.execute(q):
+            if func(self.decode(msg)):
+                q = "delete from %s where id=?" % self.table
+                c = self.conn.execute(q, (id,))
+                if not c.rowcount: # record vanished, so let's try again
+                    self.conn.rollback()
+                    return self.remove(func)
+                n += 1
+        self.conn.commit()
+        return n
 
     def clear(self):
-        self.q.clear()
+        self.conn.execute("delete from %s" % self.table)
+        self.conn.commit()
