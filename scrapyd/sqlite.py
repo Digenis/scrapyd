@@ -19,16 +19,17 @@ class JsonSqliteDict(MutableMapping):
 
     def __init__(self, database=None, table="dict"):
         self.database = database or ':memory:'
-        self.table = table
+        assert not table.startswith("sqlite_"), 'Invalid table name %r' % table
+        self.table, self.esc_table = table, '"%s"' % table.replace('"', '""')
         # about check_same_thread: http://twistedmatrix.com/trac/ticket/4040
         self.conn = sqlite3.connect(self.database, check_same_thread=False)
         q = "CREATE TABLE IF NOT EXISTS %s (key BLOB PRIMARY KEY, value BLOB)" \
-            % table
+            % self.esc_table
         self.conn.execute(q)
 
     def __getitem__(self, key):
         key = self.encode(key)
-        q = "SELECT value FROM %s WHERE key=?" % self.table
+        q = "SELECT value FROM %s WHERE key=?" % self.esc_table
         value = self.conn.execute(q, (key,)).fetchone()
         if value:
             return self.decode(value[0])
@@ -36,18 +37,18 @@ class JsonSqliteDict(MutableMapping):
 
     def __setitem__(self, key, value):
         key, value = self.encode(key), self.encode(value)
-        q = "INSERT OR REPLACE INTO %s (key, value) VALUES (?,?)" % self.table
+        q = "INSERT OR REPLACE INTO %s (key, value) VALUES (?,?)" % self.esc_table
         self.conn.execute(q, (key, value))
         self.conn.commit()
 
     def __delitem__(self, key):
         key = self.encode(key)
-        q = "DELETE FROM %s WHERE key=?" % self.table
+        q = "DELETE FROM %s WHERE key=?" % self.esc_table
         self.conn.execute(q, (key,))
         self.conn.commit()
 
     def __len__(self):
-        q = "SELECT count(*) FROM %s" % self.table
+        q = "SELECT count(*) FROM %s" % self.esc_table
         return self.conn.execute(q).fetchone()[0]
 
     def __iter__(self):
@@ -55,21 +56,21 @@ class JsonSqliteDict(MutableMapping):
             yield k
 
     def iterkeys(self):
-        q = "SELECT key FROM %s" % self.table
+        q = "SELECT key FROM %s" % self.esc_table
         return (self.decode(x[0]) for x in self.conn.execute(q))
 
     def keys(self):
         return list(self.iterkeys())
 
     def itervalues(self):
-        q = "SELECT value FROM %s" % self.table
+        q = "SELECT value FROM %s" % self.esc_table
         return (self.decode(x[0]) for x in self.conn.execute(q))
 
     def values(self):
         return list(self.itervalues())
 
     def iteritems(self):
-        q = "SELECT key, value FROM %s" % self.table
+        q = "SELECT key, value FROM %s" % self.esc_table
         return ((self.decode(x[0]), self.decode(x[1])) for x in self.conn.execute(q))
 
     def items(self):
