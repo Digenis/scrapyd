@@ -15,8 +15,8 @@ class SqliteSpiderQueue(object):
         self.table = table
         # about check_same_thread: http://twistedmatrix.com/trac/ticket/4040
         self.conn = sqlite3.connect(self.database, check_same_thread=False)
-        q = "create table if not exists %s (id integer primary key, " \
-            "priority real key, message blob)" % table
+        q = "CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY, " \
+            "priority REAL KEY, message BLOB)" % table
         self.conn.execute(q)
 
     def encode(self, obj):
@@ -34,13 +34,13 @@ class SqliteSpiderQueue(object):
         self.conn.commit()
 
     def pop(self):
-        q = "select id, message from %s order by priority desc limit 1" \
+        q = "SELECT id, message FROM %s ORDER BY priority DESC LIMIT 1" \
             % self.table
         idmsg = self.conn.execute(q).fetchone()
         if idmsg is None:
             return
         id, msg = idmsg
-        q = "delete from %s where id=?" % self.table
+        q = "DELETE FROM %s WHERE id=?" % self.table
         c = self.conn.execute(q, (id,))
         if not c.rowcount: # record vanished, so let's try again
             self.conn.rollback()
@@ -49,19 +49,19 @@ class SqliteSpiderQueue(object):
         return self.decode(msg)
 
     def count(self):
-        q = "select count(*) from %s" % self.table
+        q = "SELECT count(*) FROM %s" % self.table
         return self.conn.execute(q).fetchone()[0]
 
     def list(self):
-        q = "select message from %s order by priority desc" % self.table
+        q = "SELECT message FROM %s ORDER BY priority DESC" % self.table
         return [self.decode(m) for m, in self.conn.execute(q)]
 
     def remove(self, func):
-        q = "select id, message from %s" % self.table
+        q = "SELECT id, message FROM %s" % self.table
         n = 0
         for id, msg in self.conn.execute(q):
             if func(self.decode(msg)):
-                q = "delete from %s where id=?" % self.table
+                q = "DELETE FROM %s WHERE id=?" % self.table
                 c = self.conn.execute(q, (id,))
                 if not c.rowcount: # record vanished, so let's try again
                     self.conn.rollback()
@@ -71,5 +71,5 @@ class SqliteSpiderQueue(object):
         return n
 
     def clear(self):
-        self.conn.execute("delete from %s" % self.table)
+        self.conn.execute("DELETE FROM %s" % self.table)
         self.conn.commit()
