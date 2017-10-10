@@ -102,6 +102,7 @@ class SqliteDict(JsonSqliteDict):
         return obj
 
 
+@deprecate_class  # NOTE: delete tests after removing
 class JsonSqlitePriorityQueue(object):
     """SQLite priority queue. It relies on SQLite concurrency support for
     providing atomic inter-process operations.
